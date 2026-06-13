@@ -1,0 +1,8 @@
+# Hashes of file build rules.
+a1c9cddc3808a59127f0701675ce87dc include/ui/moc_LoadDialog.cpp
+51dace5943c6fd0f734cf3f13e5a085d include/ui/moc_MainWindow.cpp
+3a959316694b27faf43c26b99da2699a include/ui/moc_RenderWidget.cpp
+1f63451dd11df1894dfde46e4bcc7f59 include/ui/moc_SettingsWidget.cpp
+6e57898d4689632d91c044cdd22754fd ui_LoadDialog.h
+07a5f98230c76457c3d3cbafa436371e ui_MainWindow.h
+eaf9063985eb21093a943778d4190d6f ui_SettingsWidget.h
