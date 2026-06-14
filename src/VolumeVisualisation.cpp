@@ -439,7 +439,7 @@ void VolumeVisualisation::marchingCubes() {
             double partial_z = 8*tau_2*z*(tau_2*y_2 - z_2)*(tau_2*x_2 - y_2) - 8*z*(tau_2*z_2 - x_2)*(tau_2*x_2 - y_2) - 4*(1.0 + 2.0*tau)*z*r;
 
             // Storing normal in mesh normals
-            m_mesh.normals.push_back(glm::normalize(glm::vec3(partial_x, partial_y, partial_z)));
+            m_mesh.normals.push_back(glm::normalize(-glm::vec3(partial_x, partial_y, partial_z)));
         }
     }
     else {
@@ -477,7 +477,7 @@ void VolumeVisualisation::marchingCubes() {
             double partial_z = ((m_volume_data.values[z_plus_1]) - (m_volume_data.values[z_minus_1])) / (2.0f * size_of_cell.z);
 
             // Storing normal in mesh normals
-            m_mesh.normals.push_back(glm::normalize(glm::vec3(partial_x, partial_y, partial_z)));
+            m_mesh.normals.push_back(glm::normalize(-glm::vec3(partial_x, partial_y, partial_z)));
         }
     }
 }
@@ -1033,7 +1033,7 @@ void VolumeVisualisation::dualMarchingCubes() {
             double partial_z = 8*tau_2*z*(tau_2*y_2 - z_2)*(tau_2*x_2 - y_2) - 8*z*(tau_2*z_2 - x_2)*(tau_2*x_2 - y_2) - 4*(1.0 + 2.0*tau)*z*r;
 
             // Storing normal in mesh normals
-            m_mesh.normals.push_back(glm::normalize(glm::vec3(partial_x, partial_y, partial_z)));
+            m_mesh.normals.push_back(glm::normalize(-glm::vec3(partial_x, partial_y, partial_z)));
         }
     }
     else {
@@ -1071,7 +1071,7 @@ void VolumeVisualisation::dualMarchingCubes() {
             double partial_z = ((m_volume_data.values[z_plus_1]) - (m_volume_data.values[z_minus_1])) / (2.0f * size_of_cell.z);
 
             // Storing normal in mesh normals
-            m_mesh.normals.push_back(glm::normalize(glm::vec3(partial_x, partial_y, partial_z)));
+            m_mesh.normals.push_back(glm::normalize(-glm::vec3(partial_x, partial_y, partial_z)));
         }
     }
 }
