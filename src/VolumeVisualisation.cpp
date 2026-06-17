@@ -158,6 +158,8 @@ void VolumeVisualisation::generateMesh(float iso_value, bool dual, bool grid_sna
 
 void VolumeVisualisation::drawMesh(QOpenGLFunctions_2_1* f) const {
 
+    glm::vec4 color = {0.2f, 0.2f, 0.5f, 1.f};
+
     f->glBegin(GL_TRIANGLES);
     for (int i = 0; i < m_mesh.triangles.size(); i++)
     {
@@ -165,6 +167,11 @@ void VolumeVisualisation::drawMesh(QOpenGLFunctions_2_1* f) const {
         {
             int triangle_vertice_index = m_mesh.triangles[i][j];
             glm::vec3 triangle_vertice_value = m_mesh.vertices[triangle_vertice_index];
+            glm::vec3 triangle_normal_value = m_mesh.normals[triangle_vertice_index];
+
+            f->glColor3fv(&color.x);
+
+            f->glNormal3fv(reinterpret_cast<const float*>(&triangle_normal_value));
 
             f->glVertex3fv(reinterpret_cast<const float*>(&triangle_vertice_value));
 
@@ -366,12 +373,12 @@ void VolumeVisualisation::marchingCubes() {
                 // Add current mesh to total mesh while keeping track of vertices offset for triangles
                 vertices_size = glm::ivec3(m_mesh.vertices.size());
 
-                for(int i = 0; i < current_mesh.vertices.size(); i++)
+                for(int i = current_mesh.vertices.size() - 1; i >= 0; i--)
                 {
                     m_mesh.vertices.push_back(current_mesh.vertices[i]);
                 }
 
-                for(int i = 0; i < current_mesh.triangles.size(); i++)
+                for(int i = current_mesh.triangles.size() - 1; i >= 0 ; i--)
                 {
                     m_mesh.triangles.push_back(current_mesh.triangles[i] + vertices_size);
                 }
@@ -477,7 +484,7 @@ void VolumeVisualisation::marchingCubes() {
             double partial_z = ((m_volume_data.values[z_plus_1]) - (m_volume_data.values[z_minus_1])) / (2.0f * size_of_cell.z);
 
             // Storing normal in mesh normals
-            m_mesh.normals.push_back(glm::normalize(-glm::vec3(partial_x, partial_y, partial_z)));
+            m_mesh.normals.push_back(-glm::normalize(glm::vec3(partial_x, partial_y, partial_z)));
         }
     }
 }
@@ -1033,7 +1040,7 @@ void VolumeVisualisation::dualMarchingCubes() {
             double partial_z = 8*tau_2*z*(tau_2*y_2 - z_2)*(tau_2*x_2 - y_2) - 8*z*(tau_2*z_2 - x_2)*(tau_2*x_2 - y_2) - 4*(1.0 + 2.0*tau)*z*r;
 
             // Storing normal in mesh normals
-            m_mesh.normals.push_back(glm::normalize(-glm::vec3(partial_x, partial_y, partial_z)));
+            m_mesh.normals.push_back(glm::normalize(glm::vec3(partial_x, partial_y, partial_z)));
         }
     }
     else {
@@ -1071,7 +1078,7 @@ void VolumeVisualisation::dualMarchingCubes() {
             double partial_z = ((m_volume_data.values[z_plus_1]) - (m_volume_data.values[z_minus_1])) / (2.0f * size_of_cell.z);
 
             // Storing normal in mesh normals
-            m_mesh.normals.push_back(glm::normalize(-glm::vec3(partial_x, partial_y, partial_z)));
+            m_mesh.normals.push_back(glm::normalize(glm::vec3(partial_x, partial_y, partial_z)));
         }
     }
 }
