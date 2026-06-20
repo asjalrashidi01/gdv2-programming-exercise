@@ -498,13 +498,97 @@ void VolumeVisualisation::dualMarchingCubes() {
 
     glm::vec3 size_of_cell = (m_bounding_box.max - m_bounding_box.min) / glm::vec3((m_volume_data.dimensions - glm::ivec3(1.0,1.0,1.0)));
 
+    // Defining object to store dual points
+
+    struct CellDualPoints
+    {
+        int count = 0;
+        int patchMask[4] = {0,0,0,0};
+        int vertexIndex[4] = {-1,-1,-1,-1};
+    };
+
+    std::vector<CellDualPoints> dual_points((m_volume_data.dimensions.x-1)*(m_volume_data.dimensions.y-1)*(m_volume_data.dimensions.z-1));
+    
+    // Computing dual points for each cell
+    
+    for (int x = 0; x < m_volume_data.dimensions.x - 1; x++)
+    {
+        for (int y = 0; y < m_volume_data.dimensions.y - 1; y++)
+        {
+            for (int z = 0; z < m_volume_data.dimensions.z - 1; z++)
+            {
+                int index = 0;
+                index |= (m_volume_data.values[calculateIndex(glm::ivec3(x,y,z), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_0 : 0);
+                index |= (m_volume_data.values[calculateIndex(glm::ivec3(x+1,y,z), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_1 : 0);
+                index |= (m_volume_data.values[calculateIndex(glm::ivec3(x+1,y,z+1), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_2 : 0);
+                index |= (m_volume_data.values[calculateIndex(glm::ivec3(x,y,z+1), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_3 : 0);
+                index |= (m_volume_data.values[calculateIndex(glm::ivec3(x,y+1,z), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_4 : 0);
+                index |= (m_volume_data.values[calculateIndex(glm::ivec3(x+1,y+1,z), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_5 : 0);
+                index |= (m_volume_data.values[calculateIndex(glm::ivec3(x+1,y+1,z+1), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_6 : 0);
+                index |= (m_volume_data.values[calculateIndex(glm::ivec3(x,y+1,z+1), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_7 : 0);
+
+                const int* dual_point_edges = gris::dual_points_list[index];
+
+                int cell_index = x + ((m_volume_data.dimensions.x - 1) * y) + ((m_volume_data.dimensions.x - 1) * (m_volume_data.dimensions.y - 1) * z);
+                CellDualPoints& cell = dual_points[cell_index];
+                
+                for (int i = 0; i < 4; i++)
+                {
+                    // Checking whether dual_point edge is current edge
+
+                    int patch_mask = dual_point_edges[i];
+
+                    // Ending if edges end
+
+                    if (patch_mask == 0)
+                    {
+                        break;
+                    }
+
+                    // Computing dual point
+
+                    glm::vec3 dual_point(0.0f);
+
+                    int numIntersections = 0;
+
+                    for (int edge = 0; edge < 12; edge++)
+                    {
+                        int edgeBit = (1 << edge);
+
+                        if (patch_mask & edgeBit)
+                        {
+                            glm::vec3 intersection = computeEdgeIntersection(x, y, z, edge);
+                            dual_point += intersection;
+                            numIntersections++;
+                        }
+
+                    }
+
+                    dual_point /= float(numIntersections);
+
+                    int vertex_index = m_mesh.vertices.size();
+
+                    // Adding computed dual point to mesh and storing in data structure for triangles later
+
+                    m_mesh.vertices.push_back(dual_point);
+
+                    cell.patchMask[cell.count] = patch_mask;
+                    cell.vertexIndex[cell.count] = vertex_index;
+                    cell.count++;
+                }
+            }
+        }
+    }
+
+    // Computing triangles edge wise from dual points
+
     // Iterating over edges in x direction
 
-    for (int x = 0; x <= m_volume_data.dimensions.x - 2; x++)
+    for (int x = 0; x < m_volume_data.dimensions.x - 1; x++)
     {
-        for (int y = 0; y <= m_volume_data.dimensions.y - 1; y++)
+        for (int y = 0; y < m_volume_data.dimensions.y; y++)
         {
-            for (int z = 0; z <= m_volume_data.dimensions.z - 1; z++)
+            for (int z = 0; z < m_volume_data.dimensions.z; z++)
             {
                 // Checking if edge has transition of isovalue
 
@@ -517,13 +601,15 @@ void VolumeVisualisation::dualMarchingCubes() {
                     transition = true;
                 }
 
-                // Calculating dual point if there is a transition
+                // Calculating triangles if there is a transition
 
                 if (transition)
                 {
-                    // Initializing dual points array
+                    // Initializing vertices array and current edge
 
-                    std::vector<glm::vec3> dual_points_array;
+                    std::vector<int> edge_vertices;
+
+                    int current_edge;
 
                     // Iterate over the 4 cells that share the edge
 
@@ -533,21 +619,26 @@ void VolumeVisualisation::dualMarchingCubes() {
                         int cell_y = y;
                         int cell_z = z;
 
-                        switch(i) {
-                        case 0:
-                            break;
-                        case 1:
-                            cell_y -= 1;
-                            break;
-                        case 2:
-                            cell_z -= 1;
-                            break;
-                        case 3:
-                            cell_y -= 1;
-                            cell_z -= 1;
-                            break;
-                        default:
-                            assert(false);
+                        switch(i)
+                        {
+                            case 0:
+                                current_edge = gris::EDGE_0;
+                                break;
+                            case 1:
+                                cell_z -= 1;
+                                current_edge = gris::EDGE_2;
+                                break;
+                            case 2:
+                                cell_y -= 1;
+                                cell_z -= 1;
+                                current_edge = gris::EDGE_6;
+                                break;
+                            case 3:
+                                cell_y -= 1;
+                                current_edge = gris::EDGE_4;
+                                break;
+                            default:
+                                assert(false);
                         }
 
                         // Checking if cell is within bounds
@@ -559,114 +650,81 @@ void VolumeVisualisation::dualMarchingCubes() {
                             continue;
                         }
 
-                        // Constructing 8 bit index for current cell
+                        // Finding whether current cell has dual point
 
-                        int index = 0;
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y,cell_z), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_0 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y,cell_z), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_1 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y,cell_z+1), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_2 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y,cell_z+1), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_3 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y+1,cell_z), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_4 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y+1,cell_z), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_5 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y+1,cell_z+1), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_6 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y+1,cell_z+1), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_7 : 0);
+                        int cell_index = cell_x + ((m_volume_data.dimensions.x - 1) * cell_y) + ((m_volume_data.dimensions.x - 1) * (m_volume_data.dimensions.y - 1) * cell_z);
 
-                        // Evaluating dual point edges for current cell index
+                        CellDualPoints& current_cell = dual_points[cell_index];
 
-                        const int* dual_point_edges = gris::dual_points_list[index];
-
-                        // Iterating over dual point edges to find current edge
-
-                        for (int j = 0; j < 4; j++)
+                        for (int j = 0; j < current_cell.count; j++)
                         {
-                            // Checking whether dual_point edge is current edge
-
-                            if (dual_point_edges[j] & gris::EDGE_0)
+                            if (current_cell.patchMask[j] & current_edge)
                             {
-                                // Constructing current grid cell
-
-                                gris::GridCell current_cell;
-
-                                current_cell.values[0] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y,cell_z), m_volume_data.dimensions)];
-                                current_cell.values[1] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y,cell_z), m_volume_data.dimensions)];
-                                current_cell.values[2] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y,cell_z+1), m_volume_data.dimensions)];
-                                current_cell.values[3] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y,cell_z+1), m_volume_data.dimensions)];
-                                current_cell.values[4] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y+1,cell_z), m_volume_data.dimensions)];
-                                current_cell.values[5] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y+1,cell_z), m_volume_data.dimensions)];
-                                current_cell.values[6] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y+1,cell_z+1), m_volume_data.dimensions)];
-                                current_cell.values[7] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y+1,cell_z+1), m_volume_data.dimensions)];
-
-                                current_cell.volume.min = m_bounding_box.min + (glm::vec3(cell_x,cell_y,cell_z) * size_of_cell);
-                                current_cell.volume.max = m_bounding_box.min + (glm::vec3(cell_x+1,cell_y+1,cell_z+1) * size_of_cell);
-
-                                // Evaluating triangle for current cell
-                                
-                                gris::TriangleMesh current_mesh = poligonize(current_cell, m_iso_value);
-
-                                // Calculating dual point using centre of triangle
-
-                                glm::vec3 dual_point = glm::vec3(0.0f, 0.0f, 0.0f);
-
-                                for (int k = 0; k < current_mesh.vertices.size(); k++)
-                                {
-                                    dual_point += current_mesh.vertices[k];
-                                }
-
-                                dual_point /= current_mesh.vertices.size();
-
-                                dual_points_array.push_back(dual_point);
+                                edge_vertices.push_back(current_cell.vertexIndex[j]);
                             }
                         }
-
                     }
 
-                    // Adding triangles based on number of dual points obtained
+                    // Checking how many triangles to add
+                    
 
-                    if (dual_points_array.size() == 4)
+                    if (edge_vertices.size() == 4)
                     {
-                        // Using dual points array to add 2 triangles
+                        int v0 = edge_vertices[0];
+                        int v1 = edge_vertices[1];
+                        int v2 = edge_vertices[2];
+                        int v3 = edge_vertices[3];
 
-                        glm::ivec3 vertices_size = glm::ivec3(m_mesh.vertices.size());
+                        glm::vec3 p0 = m_mesh.vertices[v0];
+                        glm::vec3 p1 = m_mesh.vertices[v1];
+                        glm::vec3 p2 = m_mesh.vertices[v2];
+                        glm::vec3 p3 = m_mesh.vertices[v3];
 
-                        m_mesh.vertices.push_back(dual_points_array[0]);
-                        m_mesh.vertices.push_back(dual_points_array[1]);
-                        m_mesh.vertices.push_back(dual_points_array[2]);
+                        glm::vec3 quadNormal = glm::cross(p1 - p0, p3 - p0);
 
-                        m_mesh.triangles.push_back(glm::ivec3(0,1,2) + vertices_size);
-                        
-                        vertices_size = glm::ivec3(m_mesh.vertices.size());
+                        glm::vec3 center = 0.25f * (p0 + p1 + p2 + p3);
 
-                        m_mesh.vertices.push_back(dual_points_array[0]);
-                        m_mesh.vertices.push_back(dual_points_array[2]);
-                        m_mesh.vertices.push_back(dual_points_array[3]);
-                        
-                        m_mesh.triangles.push_back(glm::ivec3(0,1,2) + vertices_size);
+                        if (glm::dot(quadNormal, center) < 0.0f)
+                        {
+                            std::swap(v1, v3);
+                        }
+
+                        m_mesh.triangles.push_back({v0, v1, v3});
+                        m_mesh.triangles.push_back({v1, v2, v3});
                     }
-                    else if (dual_points_array.size() == 3)
+                    else if (edge_vertices.size() == 3)
                     {
-                        // Using dual points array to add 1 triangle
+                        int v0 = edge_vertices[0];
+                        int v1 = edge_vertices[1];
+                        int v2 = edge_vertices[2];
 
-                        glm::ivec3 vertices_size = glm::ivec3(m_mesh.vertices.size());
+                        glm::vec3 p0 = m_mesh.vertices[v0];
+                        glm::vec3 p1 = m_mesh.vertices[v1];
+                        glm::vec3 p2 = m_mesh.vertices[v2];
 
-                        m_mesh.vertices.push_back(dual_points_array[0]);
-                        m_mesh.vertices.push_back(dual_points_array[1]);
-                        m_mesh.vertices.push_back(dual_points_array[2]);
+                        glm::vec3 triNormal = glm::cross(p1 - p0, p2 - p0);
 
-                        m_mesh.triangles.push_back(glm::ivec3(0,1,2) + vertices_size);
+                        glm::vec3 center = (p0 + p1 + p2) / 3.0f;
+
+                        if (glm::dot(triNormal, center) < 0.0f)
+                        {
+                            std::swap(v1, v2);
+                        }
+
+                        m_mesh.triangles.push_back({v0, v1, v2});
                     }
                 }
-
             }
         }
     }
 
     // Iterating over edges in y direction
 
-    for (int x = 0; x <= m_volume_data.dimensions.x - 1; x++)
+    for (int x = 0; x < m_volume_data.dimensions.x; x++)
     {
-        for (int y = 0; y <= m_volume_data.dimensions.y - 2; y++)
+        for (int y = 0; y < m_volume_data.dimensions.y - 1; y++)
         {
-            for (int z = 0; z <= m_volume_data.dimensions.z - 1; z++)
+            for (int z = 0; z < m_volume_data.dimensions.z; z++)
             {
                 // Checking if edge has transition of isovalue
 
@@ -679,13 +737,15 @@ void VolumeVisualisation::dualMarchingCubes() {
                     transition = true;
                 }
 
-                // Calculating dual point if there is a transition
+                // Calculating triangles if there is a transition
 
                 if (transition)
                 {
-                    // Initializing dual points array
+                    // Initializing vertices array and current edge
 
-                    std::vector<glm::vec3> dual_points_array;
+                    std::vector<int> edge_vertices;
+
+                    int current_edge;
 
                     // Iterate over the 4 cells that share the edge
 
@@ -695,21 +755,26 @@ void VolumeVisualisation::dualMarchingCubes() {
                         int cell_y = y;
                         int cell_z = z;
 
-                        switch(i) {
-                        case 0:
-                            break;
-                        case 1:
-                            cell_x -= 1;
-                            break;
-                        case 2:
-                            cell_z -= 1;
-                            break;
-                        case 3:
-                            cell_x -= 1;
-                            cell_z -= 1;
-                            break;
-                        default:
-                            assert(false);
+                        switch(i)
+                        {
+                            case 0:
+                                current_edge = gris::EDGE_8;
+                                break;
+                            case 1:
+                                cell_z -= 1;
+                                current_edge = gris::EDGE_11;
+                                break;
+                            case 2:
+                                cell_x -= 1;
+                                cell_z -= 1;
+                                current_edge = gris::EDGE_10;
+                                break;
+                            case 3:
+                                cell_x -= 1;
+                                current_edge = gris::EDGE_9;
+                                break;
+                            default:
+                                assert(false);
                         }
 
                         // Checking if cell is within bounds
@@ -721,114 +786,80 @@ void VolumeVisualisation::dualMarchingCubes() {
                             continue;
                         }
 
-                        // Constructing 8 bit index for current cell
+                        // Finding whether current cell has dual point
 
-                        int index = 0;
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y,cell_z), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_0 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y,cell_z), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_1 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y,cell_z+1), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_2 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y,cell_z+1), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_3 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y+1,cell_z), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_4 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y+1,cell_z), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_5 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y+1,cell_z+1), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_6 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y+1,cell_z+1), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_7 : 0);
+                        int cell_index = cell_x + ((m_volume_data.dimensions.x - 1) * cell_y) + ((m_volume_data.dimensions.x - 1) * (m_volume_data.dimensions.y - 1) * cell_z);
 
-                        // Evaluating dual point edges for current cell index
+                        CellDualPoints& current_cell = dual_points[cell_index];
 
-                        const int* dual_point_edges = gris::dual_points_list[index];
-
-                        // Iterating over dual point edges to find current edge
-
-                        for (int j = 0; j < 4; j++)
+                        for (int j = 0; j < current_cell.count; j++)
                         {
-                            // Checking whether dual_point edge is current edge
-
-                            if (dual_point_edges[j] & gris::EDGE_8)
+                            if (current_cell.patchMask[j] & current_edge)
                             {
-                                // Constructing current grid cell
-
-                                gris::GridCell current_cell;
-
-                                current_cell.values[0] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y,cell_z), m_volume_data.dimensions)];
-                                current_cell.values[1] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y,cell_z), m_volume_data.dimensions)];
-                                current_cell.values[2] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y,cell_z+1), m_volume_data.dimensions)];
-                                current_cell.values[3] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y,cell_z+1), m_volume_data.dimensions)];
-                                current_cell.values[4] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y+1,cell_z), m_volume_data.dimensions)];
-                                current_cell.values[5] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y+1,cell_z), m_volume_data.dimensions)];
-                                current_cell.values[6] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y+1,cell_z+1), m_volume_data.dimensions)];
-                                current_cell.values[7] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y+1,cell_z+1), m_volume_data.dimensions)];
-
-                                current_cell.volume.min = m_bounding_box.min + (glm::vec3(cell_x,cell_y,cell_z) * size_of_cell);
-                                current_cell.volume.max = m_bounding_box.min + (glm::vec3(cell_x+1,cell_y+1,cell_z+1) * size_of_cell);
-
-                                // Evaluating triangle for current cell
-                                
-                                gris::TriangleMesh current_mesh = poligonize(current_cell, m_iso_value);
-
-                                // Calculating dual point using centre of triangle
-
-                                glm::vec3 dual_point = glm::vec3(0.0f, 0.0f, 0.0f);
-
-                                for (int k = 0; k < current_mesh.vertices.size(); k++)
-                                {
-                                    dual_point += current_mesh.vertices[k];
-                                }
-
-                                dual_point /= current_mesh.vertices.size();
-
-                                dual_points_array.push_back(dual_point);
+                                edge_vertices.push_back(current_cell.vertexIndex[j]);
                             }
                         }
-
                     }
 
-                    // Adding triangles based on number of dual points obtained
+                    // Checking how many triangles to add
 
-                    if (dual_points_array.size() == 4)
+                    if (edge_vertices.size() == 4)
                     {
-                        // Using dual points array to add 2 triangles
+                        int v0 = edge_vertices[0];
+                        int v1 = edge_vertices[1];
+                        int v2 = edge_vertices[2];
+                        int v3 = edge_vertices[3];
 
-                        glm::ivec3 vertices_size = glm::ivec3(m_mesh.vertices.size());
+                        glm::vec3 p0 = m_mesh.vertices[v0];
+                        glm::vec3 p1 = m_mesh.vertices[v1];
+                        glm::vec3 p2 = m_mesh.vertices[v2];
+                        glm::vec3 p3 = m_mesh.vertices[v3];
 
-                        m_mesh.vertices.push_back(dual_points_array[0]);
-                        m_mesh.vertices.push_back(dual_points_array[1]);
-                        m_mesh.vertices.push_back(dual_points_array[2]);
+                        glm::vec3 quadNormal = glm::cross(p1 - p0, p3 - p0);
 
-                        m_mesh.triangles.push_back(glm::ivec3(0,1,2) + vertices_size);
-                        
-                        vertices_size = glm::ivec3(m_mesh.vertices.size());
+                        glm::vec3 center = 0.25f * (p0 + p1 + p2 + p3);
 
-                        m_mesh.vertices.push_back(dual_points_array[0]);
-                        m_mesh.vertices.push_back(dual_points_array[2]);
-                        m_mesh.vertices.push_back(dual_points_array[3]);
-                        
-                        m_mesh.triangles.push_back(glm::ivec3(0,1,2) + vertices_size);
+                        if (glm::dot(quadNormal, center) < 0.0f)
+                        {
+                            std::swap(v1, v3);
+                        }
+
+                        m_mesh.triangles.push_back({v0, v1, v3});
+                        m_mesh.triangles.push_back({v1, v2, v3});
                     }
-                    else if (dual_points_array.size() == 3)
+                    else if (edge_vertices.size() == 3)
                     {
-                        // Using dual points array to add 1 triangle
+                        int v0 = edge_vertices[0];
+                        int v1 = edge_vertices[1];
+                        int v2 = edge_vertices[2];
 
-                        glm::ivec3 vertices_size = glm::ivec3(m_mesh.vertices.size());
+                        glm::vec3 p0 = m_mesh.vertices[v0];
+                        glm::vec3 p1 = m_mesh.vertices[v1];
+                        glm::vec3 p2 = m_mesh.vertices[v2];
 
-                        m_mesh.vertices.push_back(dual_points_array[0]);
-                        m_mesh.vertices.push_back(dual_points_array[1]);
-                        m_mesh.vertices.push_back(dual_points_array[2]);
+                        glm::vec3 triNormal = glm::cross(p1 - p0, p2 - p0);
 
-                        m_mesh.triangles.push_back(glm::ivec3(0,1,2) + vertices_size);
+                        glm::vec3 center = (p0 + p1 + p2) / 3.0f;
+
+                        if (glm::dot(triNormal, center) < 0.0f)
+                        {
+                            std::swap(v1, v2);
+                        }
+
+                        m_mesh.triangles.push_back({v0, v1, v2});
                     }
                 }
-
             }
         }
     }
 
     // Iterating over edges in z direction
-    
-    for (int x = 0; x <= m_volume_data.dimensions.x - 1; x++)
+
+    for (int x = 0; x < m_volume_data.dimensions.x; x++)
     {
-        for (int y = 0; y <= m_volume_data.dimensions.y - 1; y++)
+        for (int y = 0; y < m_volume_data.dimensions.y; y++)
         {
-            for (int z = 0; z <= m_volume_data.dimensions.z - 2; z++)
+            for (int z = 0; z < m_volume_data.dimensions.z - 1; z++)
             {
                 // Checking if edge has transition of isovalue
 
@@ -841,13 +872,15 @@ void VolumeVisualisation::dualMarchingCubes() {
                     transition = true;
                 }
 
-                // Calculating dual point if there is a transition
+                // Calculating triangles if there is a transition
 
                 if (transition)
                 {
-                    // Initializing dual points array
+                    // Initializing vertices array and current edge
 
-                    std::vector<glm::vec3> dual_points_array;
+                    std::vector<int> edge_vertices;
+
+                    int current_edge;
 
                     // Iterate over the 4 cells that share the edge
 
@@ -857,21 +890,26 @@ void VolumeVisualisation::dualMarchingCubes() {
                         int cell_y = y;
                         int cell_z = z;
 
-                        switch(i) {
-                        case 0:
-                            break;
-                        case 1:
-                            cell_x -= 1;
-                            break;
-                        case 2:
-                            cell_y -= 1;
-                            break;
-                        case 3:
-                            cell_x -= 1;
-                            cell_y -= 1;
-                            break;
-                        default:
-                            assert(false);
+                        switch(i)
+                        {
+                            case 0:
+                                current_edge = gris::EDGE_3;
+                                break;
+                            case 1:
+                                cell_x -= 1;
+                                current_edge = gris::EDGE_1;
+                                break;
+                            case 2:
+                                cell_x -= 1;
+                                cell_y -= 1;
+                                current_edge = gris::EDGE_5;
+                                break;
+                            case 3:
+                                cell_y -= 1;
+                                current_edge = gris::EDGE_7;
+                                break;
+                            default:
+                                assert(false);
                         }
 
                         // Checking if cell is within bounds
@@ -883,103 +921,69 @@ void VolumeVisualisation::dualMarchingCubes() {
                             continue;
                         }
 
-                        // Constructing 8 bit index for current cell
+                        // Finding whether current cell has dual point
 
-                        int index = 0;
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y,cell_z), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_0 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y,cell_z), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_1 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y,cell_z+1), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_2 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y,cell_z+1), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_3 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y+1,cell_z), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_4 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y+1,cell_z), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_5 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y+1,cell_z+1), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_6 : 0);
-                        index |= (m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y+1,cell_z+1), m_volume_data.dimensions)] < m_iso_value ? gris::CORNER_7 : 0);
+                        int cell_index = cell_x + ((m_volume_data.dimensions.x - 1) * cell_y) + ((m_volume_data.dimensions.x - 1) * (m_volume_data.dimensions.y - 1) * cell_z);
 
-                        // Evaluating dual point edges for current cell index
+                        CellDualPoints& current_cell = dual_points[cell_index];
 
-                        const int* dual_point_edges = gris::dual_points_list[index];
-
-                        // Iterating over dual point edges to find current edge
-
-                        for (int j = 0; j < 4; j++)
+                        for (int j = 0; j < current_cell.count; j++)
                         {
-                            // Checking whether dual_point edge is current edge
-
-                            if (dual_point_edges[j] & gris::EDGE_3)
+                            if (current_cell.patchMask[j] & current_edge)
                             {
-                                // Constructing current grid cell
-
-                                gris::GridCell current_cell;
-
-                                current_cell.values[0] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y,cell_z), m_volume_data.dimensions)];
-                                current_cell.values[1] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y,cell_z), m_volume_data.dimensions)];
-                                current_cell.values[2] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y,cell_z+1), m_volume_data.dimensions)];
-                                current_cell.values[3] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y,cell_z+1), m_volume_data.dimensions)];
-                                current_cell.values[4] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y+1,cell_z), m_volume_data.dimensions)];
-                                current_cell.values[5] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y+1,cell_z), m_volume_data.dimensions)];
-                                current_cell.values[6] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x+1,cell_y+1,cell_z+1), m_volume_data.dimensions)];
-                                current_cell.values[7] = m_volume_data.values[calculateIndex(glm::ivec3(cell_x,cell_y+1,cell_z+1), m_volume_data.dimensions)];
-
-                                current_cell.volume.min = m_bounding_box.min + (glm::vec3(cell_x,cell_y,cell_z) * size_of_cell);
-                                current_cell.volume.max = m_bounding_box.min + (glm::vec3(cell_x+1,cell_y+1,cell_z+1) * size_of_cell);
-
-                                // Evaluating triangle for current cell
-                                
-                                gris::TriangleMesh current_mesh = poligonize(current_cell, m_iso_value);
-
-                                // Calculating dual point using centre of triangle
-
-                                glm::vec3 dual_point = glm::vec3(0.0f, 0.0f, 0.0f);
-
-                                for (int k = 0; k < current_mesh.vertices.size(); k++)
-                                {
-                                    dual_point += current_mesh.vertices[k];
-                                }
-
-                                dual_point /= current_mesh.vertices.size();
-
-                                dual_points_array.push_back(dual_point);
+                                edge_vertices.push_back(current_cell.vertexIndex[j]);
                             }
                         }
-
                     }
 
-                    // Adding triangles based on number of dual points obtained
+                    // Checking how many triangles to add
 
-                    if (dual_points_array.size() == 4)
+                    if (edge_vertices.size() == 4)
                     {
-                        // Using dual points array to add 2 triangles
+                        int v0 = edge_vertices[0];
+                        int v1 = edge_vertices[1];
+                        int v2 = edge_vertices[2];
+                        int v3 = edge_vertices[3];
 
-                        glm::ivec3 vertices_size = glm::ivec3(m_mesh.vertices.size());
+                        glm::vec3 p0 = m_mesh.vertices[v0];
+                        glm::vec3 p1 = m_mesh.vertices[v1];
+                        glm::vec3 p2 = m_mesh.vertices[v2];
+                        glm::vec3 p3 = m_mesh.vertices[v3];
 
-                        m_mesh.vertices.push_back(dual_points_array[0]);
-                        m_mesh.vertices.push_back(dual_points_array[1]);
-                        m_mesh.vertices.push_back(dual_points_array[2]);
+                        glm::vec3 quadNormal = glm::cross(p1 - p0, p3 - p0);
 
-                        m_mesh.triangles.push_back(glm::ivec3(0,1,2) + vertices_size);
-                        
-                        vertices_size = glm::ivec3(m_mesh.vertices.size());
+                        glm::vec3 center = 0.25f * (p0 + p1 + p2 + p3);
 
-                        m_mesh.vertices.push_back(dual_points_array[0]);
-                        m_mesh.vertices.push_back(dual_points_array[2]);
-                        m_mesh.vertices.push_back(dual_points_array[3]);
-                        
-                        m_mesh.triangles.push_back(glm::ivec3(0,1,2) + vertices_size);
+                        if (glm::dot(quadNormal, center) < 0.0f)
+                        {
+                            std::swap(v1, v3);
+                        }
+
+                        m_mesh.triangles.push_back({v0, v1, v3});
+                        m_mesh.triangles.push_back({v1, v2, v3});
                     }
-                    else if (dual_points_array.size() == 3)
+                    else if (edge_vertices.size() == 3)
                     {
-                        // Using dual points array to add 1 triangle
+                        int v0 = edge_vertices[0];
+                        int v1 = edge_vertices[1];
+                        int v2 = edge_vertices[2];
 
-                        glm::ivec3 vertices_size = glm::ivec3(m_mesh.vertices.size());
+                        glm::vec3 p0 = m_mesh.vertices[v0];
+                        glm::vec3 p1 = m_mesh.vertices[v1];
+                        glm::vec3 p2 = m_mesh.vertices[v2];
 
-                        m_mesh.vertices.push_back(dual_points_array[0]);
-                        m_mesh.vertices.push_back(dual_points_array[1]);
-                        m_mesh.vertices.push_back(dual_points_array[2]);
+                        glm::vec3 triNormal = glm::cross(p1 - p0, p2 - p0);
 
-                        m_mesh.triangles.push_back(glm::ivec3(0,1,2) + vertices_size);
+                        glm::vec3 center = (p0 + p1 + p2) / 3.0f;
+
+                        if (glm::dot(triNormal, center) < 0.0f)
+                        {
+                            std::swap(v1, v2);
+                        }
+
+                        m_mesh.triangles.push_back({v0, v1, v2});
                     }
                 }
-
             }
         }
     }
@@ -1040,7 +1044,7 @@ void VolumeVisualisation::dualMarchingCubes() {
             double partial_z = 8*tau_2*z*(tau_2*y_2 - z_2)*(tau_2*x_2 - y_2) - 8*z*(tau_2*z_2 - x_2)*(tau_2*x_2 - y_2) - 4*(1.0 + 2.0*tau)*z*r;
 
             // Storing normal in mesh normals
-            m_mesh.normals.push_back(glm::normalize(glm::vec3(partial_x, partial_y, partial_z)));
+            m_mesh.normals.push_back(glm::normalize(-glm::vec3(partial_x, partial_y, partial_z)));
         }
     }
     else {
@@ -1078,7 +1082,7 @@ void VolumeVisualisation::dualMarchingCubes() {
             double partial_z = ((m_volume_data.values[z_plus_1]) - (m_volume_data.values[z_minus_1])) / (2.0f * size_of_cell.z);
 
             // Storing normal in mesh normals
-            m_mesh.normals.push_back(glm::normalize(glm::vec3(partial_x, partial_y, partial_z)));
+            m_mesh.normals.push_back(glm::normalize(-glm::vec3(partial_x, partial_y, partial_z)));
         }
     }
 }
@@ -1089,4 +1093,84 @@ void VolumeVisualisation::snapToGrid(float distance) {
 
 void cleanUpTriangleSoup() {
     // TODO(4.5):
+}
+
+glm::vec3 VolumeVisualisation::computeEdgeIntersection(int x, int y, int z, int edge)
+{
+    glm::ivec3 p0;
+    glm::ivec3 p1;
+
+    glm::vec3 voxel_size = (m_bounding_box.max - m_bounding_box.min) / glm::vec3(m_volume_data.dimensions.x - 1, m_volume_data.dimensions.y - 1, m_volume_data.dimensions.z - 1);
+
+    switch(edge)
+    {
+        case 0:
+            p0 = {x, y, z};
+            p1 = {x+1, y, z};
+            break;
+        case 1:
+            p0 = {x+1, y, z};
+            p1 = {x+1, y, z+1};
+            break;
+        case 2:
+            p0 = {x, y, z+1};
+            p1 = {x+1, y, z+1};
+            break;
+        case 3:
+            p0 = {x, y, z};
+            p1 = {x, y, z+1};
+            break;
+        case 4:
+            p0 = {x, y+1, z};
+            p1 = {x+1, y+1, z};
+            break;
+        case 5:
+            p0 = {x+1, y+1, z};
+            p1 = {x+1, y+1, z+1};
+            break;
+        case 6:
+            p0 = {x, y+1, z+1};
+            p1 = {x+1, y+1, z+1};
+            break;
+        case 7:
+            p0 = {x, y+1, z};
+            p1 = {x, y+1, z+1};
+            break;
+        case 8:
+            p0 = {x, y, z};
+            p1 = {x, y+1, z};
+            break;
+        case 9:
+            p0 = {x+1, y, z};
+            p1 = {x+1, y+1, z};
+            break;
+        case 10:
+            p0 = {x+1, y, z+1};
+            p1 = {x+1, y+1, z+1};
+            break;
+        case 11:
+            p0 = {x, y, z+1};
+            p1 = {x, y+1, z+1};
+            break;
+        default:
+            assert(false);
+            return glm::vec3(0.0f);
+    }
+
+    float v0 = m_volume_data.values[calculateIndex(p0, m_volume_data.dimensions)];
+    float v1 = m_volume_data.values[calculateIndex(p1, m_volume_data.dimensions)];
+
+    if (std::abs(v1 - v0) < 1e-6f)
+    {
+        return 0.5f * (glm::vec3(p0) + glm::vec3(p1));
+    }
+    else
+    {
+        float t = (m_iso_value - v0) / (v1 - v0);
+
+        glm::vec3 pos0 = m_bounding_box.min + voxel_size * glm::vec3(p0);
+        glm::vec3 pos1 = m_bounding_box.min + voxel_size * glm::vec3(p1);
+
+        return pos0 + t * (pos1 - pos0);
+    }
 }

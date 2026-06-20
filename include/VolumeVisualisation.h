@@ -26,6 +26,7 @@ private:
 
     void snapToGrid(float distance);
     void cleanUpTriangleSoup();
+    glm::vec3 computeEdgeIntersection(int x, int y, int z, int edge);
 
     gris::BoundingBox m_bounding_box;
     bool m_is_trivariate;
